@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  neo4j:
+    image: neo4j:5.10
+    container_name: neo4j-local
+    restart: unless-stopped
+    ports:
+      - "7474:7474"   # HTTP / Browser
+      - "7687:7687"   # Bolt
+    environment:
+      NEO4J_AUTH: "neo4j/testpassword"  # change le mot de passe ici
+      NEO4JLABS_PLUGINS: '["apoc","graph-data-science"]'  # plugins utiles si tu veux
+    volumes:
+      - neo4j_data:/data
+      - neo4j_import:/var/lib/neo4j/import
+
+volumes:
+  neo4j_data:
+  neo4j_import:
