@@ -1,0 +1,351 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <!-- Left Column: Search & Filters -->
+    <div class="col-md-3">
+        <div class="card">
+            <div class="card-body">
+                <h5>🔍 Search Character</h5>
+                <input type="text" id="searchBox" class="form-control mb-2" placeholder="e.g. Harry Potter">
+                <div id="suggestions" class="list-group"></div>
+            </div>
+        </div>
+
+        <div class="card mt-3">
+            <div class="card-body">
+                <h5>⚡ Filters</h5>
+                <div class="form-check">
+                    <input class="form-check-input filter-cb" type="checkbox" value="BELONGS_TO" id="cbHouse" checked>
+                    <label class="form-check-label" for="cbHouse">House Connection</label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input filter-cb" type="checkbox" value="SAME_ANCESTRY" id="cbAncestry"
+                        checked>
+                    <label class="form-check-label" for="cbAncestry">Same Ancestry</label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input filter-cb" type="checkbox" value="SAME_SPECIES" id="cbSpecies"
+                        checked>
+                    <label class="form-check-label" for="cbSpecies">Same Species</label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input filter-cb" type="checkbox" value="SAME_WAND_MATERIAL" id="cbWand"
+                        checked>
+                    <label class="form-check-label" for="cbWand">Same Wand</label>
+                </div>
+                <hr>
+                <div class="form-check">
+                    <input class="form-check-input filter-cb" type="checkbox" value="FRIEND_OF" id="cbFriend" checked>
+                    <label class="form-check-label" for="cbFriend">Friends</label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input filter-cb" type="checkbox" value="ENEMY_OF" id="cbEnemy" checked>
+                    <label class="form-check-label" for="cbEnemy">Enemies</label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input filter-cb" type="checkbox" value="ROMANTIC_WITH" id="cbRomance"
+                        checked>
+                    <label class="form-check-label" for="cbRomance">Romance</label>
+                </div>
+                <button class="btn btn-sm btn-secondary mt-2 w-100" onclick="applyFilters()">Apply Filters</button>
+            </div>
+        </div>
+
+        <div class="card mt-3">
+            <div class="card-body">
+                <small class="text-muted">
+                    LEGEND:<br>
+                    🔵 Person<br>
+                    🏠 House<br>
+                    <span style="color:#dc3545">─ House Link</span><br>
+                    <span style="color:#28a745">─ Ancestry</span><br>
+                    <span style="color:#17a2b8">─ Species</span><br>
+                    <span style="color:#6610f2">─ Wand</span><br>
+                    <span style="color:#ffc107">─ Friend</span><br>
+                    <span style="color:#343a40">─ Enemy</span><br>
+                    <span style="color:#e83e8c">─ Romance</span>
+                </small>
+            </div>
+        </div>
+    </div>
+
+    <!-- Middle Column: Graph -->
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-body p-0">
+                <div id="cy" style="width: 100%; height: 600px; background-color: #f0f0f0;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Right Column: Entity List -->
+    <div class="col-md-3">
+        <div class="card" style="height: 600px; overflow-y: auto;">
+            <div class="card-header bg-white">
+                <h5 class="mb-2">👥 Characters</h5>
+                <input type="text" id="entitySearch" class="form-control form-control-sm mb-2"
+                    placeholder="Filter list...">
+                <div class="btn-group btn-group-sm w-100">
+                    <button class="btn btn-outline-secondary" onclick="toggleAll(true)">All</button>
+                    <button class="btn btn-outline-secondary" onclick="toggleAll(false)">None</button>
+                </div>
+            </div>
+            <div class="card-body p-2">
+                <div id="entityList" class="list-group list-group-flush">
+                    <!-- Checkboxes will go here -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.23.0/cytoscape.min.js"></script>
+<script>
+    let cy = cytoscape({
+        container: document.getElementById('cy'),
+        style: [
+            {
+                selector: 'node',
+                style: {
+                    'label': 'data(label)',
+                    'text-valign': 'center',
+                    'color': '#fff',
+                    'text-outline-width': 2,
+                    'text-outline-color': '#000',
+                    'background-color': '#666'
+                }
+            },
+            {
+                selector: 'node[group="person"]',
+                style: { 'background-color': '#007bff' }
+            },
+            {
+                selector: 'node[group="house"]',
+                style: { 'background-color': '#dc3545', 'shape': 'rectangle' }
+            },
+            {
+                selector: 'edge',
+                style: {
+                    'width': 2,
+                    'line-color': '#ccc',
+                    'target-arrow-color': '#ccc',
+                    'target-arrow-shape': 'triangle',
+                    'label': 'data(label)',
+                    'font-size': 10
+                }
+            },
+            {
+                selector: 'edge[label="BELONGS_TO"]',
+                style: { 'line-color': '#dc3545', 'target-arrow-color': '#dc3545' }
+            },
+            {
+                selector: 'edge[label="SAME_ANCESTRY"]',
+                style: { 'line-color': '#28a745', 'target-arrow-color': '#28a745' }
+            },
+            {
+                selector: 'edge[label="SAME_SPECIES"]',
+                style: { 'line-color': '#17a2b8', 'target-arrow-color': '#17a2b8' }
+            },
+            {
+                selector: 'edge[label="SAME_WAND_MATERIAL"]',
+                style: { 'line-color': '#6610f2', 'target-arrow-color': '#6610f2' }
+            },
+            {
+                selector: 'edge[label="FRIEND_OF"]',
+                style: { 'line-color': '#ffc107', 'target-arrow-color': '#ffc107', 'width': 3 }
+            },
+            {
+                selector: 'edge[label="ENEMY_OF"]',
+                style: { 'line-color': '#343a40', 'target-arrow-color': '#343a40', 'width': 3 }
+            },
+            {
+                selector: 'edge[label="ROMANTIC_WITH"]',
+                style: { 'line-color': '#e83e8c', 'target-arrow-color': '#e83e8c', 'width': 3 }
+            },
+            {
+                selector: 'edge.hidden',
+                style: { 'display': 'none' }
+            },
+            {
+                selector: 'node.hidden',
+                style: { 'display': 'none' }
+            }
+        ],
+        layout: { name: 'cose' }
+    });
+
+    const searchBox = document.getElementById('searchBox');
+    const suggestions = document.getElementById('suggestions');
+    const entitySearch = document.getElementById('entitySearch');
+
+    // Check if auto-search requested
+    const autoSearch = sessionStorage.getItem('searchGraph');
+    if (autoSearch) {
+        sessionStorage.removeItem('searchGraph');
+        loadGraph(autoSearch);
+    }
+
+    searchBox.addEventListener('input', async (e) => {
+        const q = e.target.value;
+        if (q.length < 2) {
+            suggestions.innerHTML = '';
+            return;
+        }
+
+        const res = await fetch(`/api/search?q=${q}`);
+        const names = await res.json();
+
+        suggestions.innerHTML = names.map(name =>
+            `<a href="#" class="list-group-item list-group-item-action" onclick="loadGraph('${name}')">${name}</a>`
+        ).join('');
+    });
+
+    // Entity Search Filter
+    entitySearch.addEventListener('input', applyFilters);
+
+    async function loadGraph(name) {
+        suggestions.innerHTML = '';
+        searchBox.value = name;
+
+        const res = await fetch(`/api/graph/${name}`);
+        const data = await res.json();
+
+        cy.elements().remove();
+        cy.add(data.elements);
+
+        // Populate Entity List Sidebar (Once per load)
+        populateEntityList();
+
+        // Re-apply current filters
+        applyFilters();
+
+        cy.layout({
+            name: 'cose',
+            animate: true
+        }).run();
+    }
+
+    function populateEntityList() {
+        const entityList = document.getElementById('entityList');
+        entityList.innerHTML = '';
+
+        // Get all nodes and sort them
+        const nodes = cy.nodes().sort((a, b) => {
+            const la = a.data('label') || '';
+            const lb = b.data('label') || '';
+            return la.localeCompare(lb);
+        });
+
+        // Add checkboxes
+        nodes.forEach(node => {
+            const label = node.data('label') || node.id();
+            const id = node.id();
+
+            const div = document.createElement('div');
+            // Use data-id attribute to avoid special char issues in IDs
+            div.setAttribute('data-node-id', id);
+            div.className = 'list-group-item p-1 border-0 d-flex align-items-center entity-item';
+
+            const chk = document.createElement('input');
+            chk.type = 'checkbox';
+            chk.className = 'form-check-input me-2 entity-cb';
+            chk.value = id;
+            chk.checked = true; // Default visible
+            chk.addEventListener('change', applyFilters);
+
+            const lbl = document.createElement('label');
+            lbl.className = 'form-check-label text-truncate';
+            lbl.innerText = label;
+            lbl.style.cursor = 'pointer';
+            lbl.style.fontSize = '0.9rem';
+
+            // Allow clicking label to check box
+            lbl.onclick = function () { chk.click(); };
+
+            div.appendChild(chk);
+            div.appendChild(lbl);
+            entityList.appendChild(div);
+        });
+    }
+
+    function toggleAll(state) {
+        document.querySelectorAll('.entity-cb').forEach(cb => {
+            // Only toggle currently visible items in the list to avoid checking hidden stuff
+            const li = cb.closest('.entity-item');
+            if (li && li.style.display !== 'none') {
+                cb.checked = state;
+            }
+        });
+        applyFilters();
+    }
+
+    function applyFilters() {
+        // 1. Get Filters
+        const checkboxes = document.querySelectorAll('.filter-cb');
+        const activeTypes = Array.from(checkboxes)
+            .filter(cb => cb.checked)
+            .map(cb => cb.value);
+
+        const listFilterTerm = entitySearch.value.toLowerCase();
+
+        cy.batch(() => {
+            // 2. Filter Edges (Graph Visibility)
+            let visibleEdges = cy.collection();
+            cy.edges().forEach(edge => {
+                const type = edge.data('label');
+                if (activeTypes.includes(type)) {
+                    edge.removeClass('hidden');
+                    visibleEdges = visibleEdges.union(edge);
+                } else {
+                    edge.addClass('hidden');
+                }
+            });
+
+            // 3. Identify Connected Nodes (Graph Topology)
+            const connectedNodes = visibleEdges.connectedNodes();
+
+            // 4. Update List & Nodes
+            cy.nodes().forEach(node => {
+                const id = node.id();
+                const label = (node.data('label') || '').toLowerCase();
+
+                // Find list item by data attribute (robust selection)
+                // Need to escape single quotes in ID if any
+                const safeId = id.replace(/'/g, "\\'");
+                const listItem = document.querySelector(`.entity-item[data-node-id='${safeId}']`);
+                const checkbox = listItem ? listItem.querySelector('input') : null;
+
+                // --- Logic ---
+                // Is Connected?
+                const isConnected = connectedNodes.contains(node);
+
+                // Matches List Search?
+                const isSearchMatch = label.includes(listFilterTerm);
+
+                // LIST VISIBILITY: Must be Connected AND Match Search
+                if (listItem) {
+                    if (isConnected && isSearchMatch) {
+                        listItem.style.display = 'flex';
+                    } else {
+                        listItem.style.display = 'none';
+                    }
+                }
+
+                // GRAPH VISIBILITY: Must be Connected AND Checked in List
+                // If checkbox is unchecked, hide.
+                if (isConnected && (checkbox && checkbox.checked)) {
+                    node.removeClass('hidden');
+                } else {
+                    node.addClass('hidden');
+                }
+            });
+        });
+    }
+
+    // Add listener to checkboxes for immediate effect
+    document.querySelectorAll('.filter-cb').forEach(cb => {
+        cb.addEventListener('change', applyFilters);
+    });
+</script>
+{% endblock %}

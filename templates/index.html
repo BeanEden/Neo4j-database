@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header bg-dark text-white">
+                <h4>🔮 The Sorting Hat</h4>
+            </div>
+            <div class="card-body">
+                <form id="predictForm">
+                    <div class="mb-3">
+                        <label class="form-label">Ancestry</label>
+                        <select class="form-select" id="ancestry">
+                            <option value="half-blood">Half-Blood</option>
+                            <option value="muggleborn">Muggle-born</option>
+                            <option value="pure-blood">Pure-blood</option>
+                            <option value="squib">Squib</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Species</label>
+                        <select class="form-select" id="species">
+                            <option value="human">Human</option>
+                            <option value="ghost">Ghost</option>
+                            <option value="half-giant">Half-Giant</option>
+                            <option value="werewolf">Werewolf</option>
+                            <option value="centaur">Centaur</option>
+                            <option value="house-elf">House-elf</option>
+                            <option value="goblin">Goblin</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Gender</label>
+                        <select class="form-select" id="gender">
+                            <option value="male">Male</option>
+                            <option value="female">Female</option>
+                        </select>
+                    </div>
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" class="form-check-input" id="hogwartsStudent" checked>
+                        <label class="form-check-label">Hogwarts Student</label>
+                    </div>
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" class="form-check-input" id="hogwartsStaff">
+                        <label class="form-check-label">Hogwarts Staff</label>
+                    </div>
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" class="form-check-input" id="alive" checked>
+                        <label class="form-check-label">Alive</label>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100">Sort Me!</button>
+                </form>
+
+                <div id="result" class="mt-4 text-center d-none">
+                    <h3>You belong in...</h3>
+                    <h1 class="display-4 fw-bold" id="houseResult"></h1>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    document.getElementById('predictForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const data = {
+            ancestry: document.getElementById('ancestry').value,
+            species: document.getElementById('species').value,
+            gender: document.getElementById('gender').value,
+            hogwartsStudent: document.getElementById('hogwartsStudent').checked,
+            hogwartsStaff: document.getElementById('hogwartsStaff').checked,
+            alive: document.getElementById('alive').checked
+        };
+
+        const response = await fetch('/predict', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+
+        const result = await response.json();
+        const resultDiv = document.getElementById('result');
+        const houseText = document.getElementById('houseResult');
+
+        resultDiv.classList.remove('d-none');
+        houseText.innerText = result.house;
+
+        // Simple color coding
+        const colors = {
+            'Gryffindor': '#740001',
+            'Slytherin': '#1a472a',
+            'Ravenclaw': '#0e1a40',
+            'Hufflepuff': '#ecb939'
+        };
+        houseText.style.color = colors[result.house] || '#000';
+    });
+</script>
+{% endblock %}

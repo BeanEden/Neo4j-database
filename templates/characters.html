@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-md-6 offset-md-3">
+        <h2 class="text-center mb-3">📜 Wizarding World Directory</h2>
+        <input type="text" id="searchInput" class="form-control form-control-lg"
+            placeholder="Search by name (e.g. Harry Potter)...">
+    </div>
+</div>
+
+<div class="row" id="charGrid">
+    <!-- Loaded via JS -->
+    <div class="col-12 text-center">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+    </div>
+</div>
+
+<script>
+    let allCharacters = [];
+
+    document.addEventListener('DOMContentLoaded', async () => {
+        // Fetch all for client-side search (or we could paging server-side)
+        const res = await fetch('/api/characters');
+        allCharacters = await res.json();
+        render(allCharacters);
+    });
+
+    document.getElementById('searchInput').addEventListener('input', (e) => {
+        const term = e.target.value.toLowerCase();
+        const filtered = allCharacters.filter(c => c.name.toLowerCase().includes(term));
+        render(filtered);
+    });
+
+    function render(list) {
+        const grid = document.getElementById('charGrid');
+        if (list.length === 0) {
+            grid.innerHTML = '<div class="col-12 text-center text-muted">No wizards found.</div>';
+            return;
+        }
+
+        // Limit to first 50 to avoid lag if empty search
+        const displayList = list.slice(0, 50);
+
+        grid.innerHTML = displayList.map(c => `
+        <div class="col-md-3 mb-4">
+            <div class="card h-100">
+                ${c.image ? `<img src="${c.image}" class="card-img-top" alt="${c.name}" style="height: 200px; object-fit: cover;">` : '<div class="card-img-top bg-secondary" style="height: 200px; display:flex; align-items:center; justify-content:center; color:white;">No Image</div>'}
+                <div class="card-body">
+                    <h5 class="card-title">${c.name}</h5>
+                    <p class="card-text small">
+                        <strong>House:</strong> ${c.house || 'Unknown'}<br>
+                        <strong>Species:</strong> ${c.species || 'Unknown'}<br>
+                        <strong>Status:</strong> ${c.alive ? 'Alive' : 'Deceased'}
+                    </p>
+                    <a href="/graph" onclick="sessionStorage.setItem('searchGraph', '${c.name}')" class="btn btn-sm btn-outline-dark w-100">View Network</a>
+                </div>
+            </div>
+        </div>
+    `).join('');
+    }
+</script>
+{% endblock %}

@@ -1,0 +1,6 @@
+flask
+neo4j
+scikit-learn
+pandas
+numpy
+requests
