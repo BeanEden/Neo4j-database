@@ -124,7 +124,7 @@ def fetch_hp_api():
 def fetch_potter_db():
     print("Fetching PotterDB...")
     characters = []
-    # Fetch first 10 pages
+    # Fetch first 10 pages for hybrid mode
     url = "https://api.potterdb.com/v1/characters?page[size]=100"
     count = 0
     max_pages = 10 
@@ -218,21 +218,29 @@ if __name__ == "__main__":
     
     with driver.session() as session:
         print("Clearing DB...")
-        session.write_transaction(clear_db)
+        session.execute_write(clear_db)
         print("Creating Constraints...")
-        session.write_transaction(create_constraints)
+        session.execute_write(create_constraints)
         
         print(f"Inserting {len(final_data)} characters...")
+        
+        houses_set = set()
         for i, p in enumerate(final_data):
             p["id"] = f"ch{i}"
-            session.write_transaction(insert_person, p)
-            session.write_transaction(insert_house, p.get("house"))
-            session.write_transaction(link_person_house, p["id"], p.get("house"))
+            session.execute_write(insert_person, p)
+            h = p.get("house")
+            if h:
+                houses_set.add(h)
+                session.execute_write(link_person_house, p["id"], h)
+                
+        print(f"Creating {len(houses_set)} houses...")
+        for h in houses_set:
+             session.execute_write(insert_house, h)
             
         print("Creating Base Relations...")
-        session.write_transaction(create_social_relations)
+        session.execute_write(create_social_relations)
         
         print("Creating Extended Social Relations (Friends, Enemies, Romances)...")
-        session.write_transaction(create_extended_social_relations, final_data)
+        session.execute_write(create_extended_social_relations, final_data)
 
-    print("Success: DB Populated!")
+    print("Success: DB Reverted to Hybrid and Populated!")
