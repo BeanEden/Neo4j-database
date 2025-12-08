@@ -12,6 +12,29 @@
             </div>
         </div>
 
+        <div class="card mt-3" style="display:none;">
+            <div class="card-body">
+                <h5>🏰 Display Houses</h5>
+                <div class="form-check">
+                    <input class="form-check-input house-select" type="checkbox" value="Gryffindor" id="hGryffindor">
+                    <label class="form-check-label" for="hGryffindor">Gryffindor 🦁</label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input house-select" type="checkbox" value="Slytherin" id="hSlytherin">
+                    <label class="form-check-label" for="hSlytherin">Slytherin 🐍</label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input house-select" type="checkbox" value="Ravenclaw" id="hRavenclaw">
+                    <label class="form-check-label" for="hRavenclaw">Ravenclaw 🦅</label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input house-select" type="checkbox" value="Hufflepuff" id="hHufflepuff">
+                    <label class="form-check-label" for="hHufflepuff">Hufflepuff 🦡</label>
+                </div>
+                <button class="btn btn-sm btn-primary mt-2 w-100" onclick="loadHouses()">Load Selected Houses</button>
+            </div>
+        </div>
+
         <div class="card mt-3">
             <div class="card-body">
                 <h5>⚡ Filters</h5>
@@ -20,15 +43,10 @@
                     <label class="form-check-label" for="cbHouse">House Connection</label>
                 </div>
                 <div class="form-check">
-                    <input class="form-check-input filter-cb" type="checkbox" value="SAME_ANCESTRY" id="cbAncestry"
-                        checked>
-                    <label class="form-check-label" for="cbAncestry">Same Ancestry</label>
+                    <input class="form-check-input filter-cb" type="checkbox" value="SAME_FAMILY" id="cbFamily" checked>
+                    <label class="form-check-label" for="cbFamily">Same Family</label>
                 </div>
-                <div class="form-check">
-                    <input class="form-check-input filter-cb" type="checkbox" value="SAME_SPECIES" id="cbSpecies"
-                        checked>
-                    <label class="form-check-label" for="cbSpecies">Same Species</label>
-                </div>
+                <!-- SAME_SPECIES Removed -->
                 <div class="form-check">
                     <input class="form-check-input filter-cb" type="checkbox" value="SAME_WAND_MATERIAL" id="cbWand"
                         checked>
@@ -59,8 +77,8 @@
                     🔵 Person<br>
                     🏠 House<br>
                     <span style="color:#dc3545">─ House Link</span><br>
-                    <span style="color:#28a745">─ Ancestry</span><br>
-                    <span style="color:#17a2b8">─ Species</span><br>
+                    <span style="color:#28a745">─ Family</span><br>
+
                     <span style="color:#6610f2">─ Wand</span><br>
                     <span style="color:#ffc107">─ Friend</span><br>
                     <span style="color:#343a40">─ Enemy</span><br>
@@ -140,13 +158,10 @@
                 style: { 'line-color': '#dc3545', 'target-arrow-color': '#dc3545' }
             },
             {
-                selector: 'edge[label="SAME_ANCESTRY"]',
+                selector: 'edge[label="SAME_FAMILY"]',
                 style: { 'line-color': '#28a745', 'target-arrow-color': '#28a745' }
             },
-            {
-                selector: 'edge[label="SAME_SPECIES"]',
-                style: { 'line-color': '#17a2b8', 'target-arrow-color': '#17a2b8' }
-            },
+
             {
                 selector: 'edge[label="SAME_WAND_MATERIAL"]',
                 style: { 'line-color': '#6610f2', 'target-arrow-color': '#6610f2' }
@@ -203,6 +218,32 @@
 
     // Entity Search Filter
     entitySearch.addEventListener('input', applyFilters);
+
+    async function loadHouses() {
+        const checkboxes = document.querySelectorAll('.house-select');
+        const selectedHouses = Array.from(checkboxes)
+            .filter(cb => cb.checked)
+            .map(cb => cb.value);
+
+        if (selectedHouses.length === 0) {
+            alert("Please select at least one house.");
+            return;
+        }
+
+        const res = await fetch(`/api/graph/houses?houses=${selectedHouses.join(',')}`);
+        const data = await res.json();
+
+        cy.elements().remove();
+        cy.add(data.elements);
+
+        populateEntityList();
+        applyFilters();
+
+        cy.layout({
+            name: 'cose',
+            animate: true
+        }).run();
+    }
 
     async function loadGraph(name) {
         suggestions.innerHTML = '';

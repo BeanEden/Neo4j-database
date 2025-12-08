@@ -2,10 +2,11 @@
 
 {% block content %}
 <div class="row mb-4">
-    <div class="col-md-6 offset-md-3">
+    <div class="col-md-6 offset-md-3 position-relative">
         <h2 class="text-center mb-3">📜 Wizarding World Directory</h2>
         <input type="text" id="searchInput" class="form-control form-control-lg"
-            placeholder="Search by name (e.g. Harry Potter)...">
+            placeholder="Search by name (e.g. Harry Potter)..." autocomplete="off">
+        <div id="suggestions" class="list-group position-absolute w-100" style="z-index: 1000;"></div>
     </div>
 </div>
 
@@ -22,17 +23,58 @@
     let allCharacters = [];
 
     document.addEventListener('DOMContentLoaded', async () => {
-        // Fetch all for client-side search (or we could paging server-side)
+        // Initial load (limited to top 50 to save data?) or all.
+        // Let's load all for the grid, but use API for autocomplete suggestions.
         const res = await fetch('/api/characters');
         allCharacters = await res.json();
         render(allCharacters);
     });
 
-    document.getElementById('searchInput').addEventListener('input', (e) => {
-        const term = e.target.value.toLowerCase();
-        const filtered = allCharacters.filter(c => c.name.toLowerCase().includes(term));
-        render(filtered);
+    const searchInput = document.getElementById('searchInput');
+    const suggestionsBox = document.getElementById('suggestions');
+
+    searchInput.addEventListener('input', async (e) => {
+        const term = e.target.value;
+
+        // 1. Filter Grid Locally (Instant feedback)
+        const visibleRaw = allCharacters.filter(c => c.name.toLowerCase().includes(term.toLowerCase()));
+        render(visibleRaw);
+
+        // 2. Fetch API Autocomplete Suggestions
+        if (term.length < 2) {
+            suggestionsBox.innerHTML = '';
+            return;
+        }
+
+        try {
+            const res = await fetch(`/api/search?q=${term}`);
+            const names = await res.json();
+
+            if (names.length > 0) {
+                suggestionsBox.innerHTML = names.slice(0, 5).map(name =>
+                    `<a href="#" class="list-group-item list-group-item-action" onclick="selectSuggestion('${name}')">${name}</a>`
+                ).join('');
+            } else {
+                suggestionsBox.innerHTML = '';
+            }
+        } catch (err) {
+            console.error(err);
+        }
     });
+
+    // Hide suggestions when clicking outside
+    document.addEventListener('click', (e) => {
+        if (!searchInput.contains(e.target) && !suggestionsBox.contains(e.target)) {
+            suggestionsBox.innerHTML = '';
+        }
+    });
+
+    function selectSuggestion(name) {
+        searchInput.value = name;
+        suggestionsBox.innerHTML = '';
+        const filtered = allCharacters.filter(c => c.name === name);
+        render(filtered);
+    }
 
     function render(list) {
         const grid = document.getElementById('charGrid');
@@ -41,7 +83,6 @@
             return;
         }
 
-        // Limit to first 50 to avoid lag if empty search
         const displayList = list.slice(0, 50);
 
         grid.innerHTML = displayList.map(c => `
@@ -55,7 +96,7 @@
                         <strong>Species:</strong> ${c.species || 'Unknown'}<br>
                         <strong>Status:</strong> ${c.alive ? 'Alive' : 'Deceased'}
                     </p>
-                    <a href="/graph" onclick="sessionStorage.setItem('searchGraph', '${c.name}')" class="btn btn-sm btn-outline-dark w-100">View Network</a>
+                    <a href="/graph" onclick="sessionStorage.setItem('searchGraph', '${c.name.replace(/'/g, "\\'")}')" class="btn btn-sm btn-outline-dark w-100">View Network</a>
                 </div>
             </div>
         </div>

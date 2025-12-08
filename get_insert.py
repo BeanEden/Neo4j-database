@@ -7,240 +7,170 @@ NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
 NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "testpassword")
 
-# --- Connexion à Neo4j ---
 driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
 
-# --- Fonctions d'insertion ---
-def clear_db(tx):
-    tx.run("MATCH (n) DETACH DELETE n")
+# --- ROMANCE DATA ---
+# Mapped to likely HP-API names (English) where possible, or kept as User provided if unsure.
+# We will match by stripping substrings if needed or exact match.
+ROMANCES = [
+    ("Harry Potter", "Ginny Weasley"),
+    ("Ron Weasley", "Hermione Granger"),
+    ("James Potter", "Lily Potter"), # User said Lily Evans
+    ("Arthur Weasley", "Molly Weasley"), # User said Molly Prewett
+    ("Bill Weasley", "Fleur Delacour"),
+    ("Remus Lupin", "Nymphadora Tonks"),
+    ("Rubeus Hagrid", "Olympe Maxime"),
+    ("Vernon Dursley", "Petunia Dursley"), # User said Petunia Evans
+    ("Frank Longbottom", "Alice Longbottom"), # User said Londubat
+    ("Teddy Lupin", "Victoire Weasley"),
+    ("George Weasley", "Angelina Johnson"),
+    ("Neville Longbottom", "Hannah Abbott"), # User said Londubat
+    ("Luna Lovegood", "Rolf Scamander"),
+    ("Percy Weasley", "Audrey"),
+    ("Hermione Granger", "Viktor Krum"),
+    ("Ron Weasley", "Lavender Brown"),
+    ("Harry Potter", "Cho Chang"),
+    ("Ginny Weasley", "Dean Thomas"),
+    ("Ginny Weasley", "Michael Corner"),
+    ("Percy Weasley", "Penelope Clearwater"),
+    ("Draco Malfoy", "Astoria Greengrass"),
+    ("Tom Riddle", "Merope Gaunt"), # User said Tom Jedusor Sr
+    ("Xenophilius Lovegood", "Pandora Lovegood"),
+    ("Lucius Malfoy", "Narcissa Malfoy"), # User said Narcissa Black
+    ("Ted Tonks", "Andromeda Tonks"), # User said Andromeda Black
+    ("Fleamont Potter", "Euphemia Potter"),
+    ("Septimus Weasley", "Cedrella Black")
+]
 
-def create_constraints(tx):
-    tx.run("CREATE CONSTRAINT person_id IF NOT EXISTS FOR (p:Person) REQUIRE p.id IS UNIQUE;")
-    tx.run("CREATE CONSTRAINT house_id IF NOT EXISTS FOR (h:House) REQUIRE h.name IS UNIQUE;")
+# Alternate names map to help matching User Input to HP API
+NAME_MAP = {
+    "Lily Evans": "Lily Potter",
+    "Molly Prewett": "Molly Weasley",
+    "Petunia Evans": "Petunia Dursley",
+    "Frank Londubat": "Frank Longbottom",
+    "Alice Londubat": "Alice Longbottom",
+    "Neville Londubat": "Neville Longbottom",
+    "Tom Jedusor": "Tom Riddle",
+    "Tom Jedusor Sr": "Tom Riddle",
+    "Narcissa Black": "Narcissa Malfoy",
+    "Andromeda Black": "Andromeda Tonks"
+}
 
-def insert_person(tx, person):
-    tx.run("""
-        MERGE (p:Person {id: $id})
-        SET p.name = $name,
-            p.house = $house,
-            p.image = $image,
-            p.gender = $gender,
-            p.patronus = $patronus,
-            p.ancestry = $ancestry,
-            p.wand = $wand,
-            p.species = $species,
-            p.hogwartsStudent = $hogwartsStudent,
-            p.hogwartsStaff = $hogwartsStaff,
-            p.alive = $alive
-    """, person)
-
-def insert_house(tx, house_name):
-    if house_name:
-        tx.run("MERGE (h:House {name: $name})", {"name": house_name})
-
-def link_person_house(tx, person_id, house_name):
-    if house_name:
-        tx.run("""
-            MATCH (p:Person {id: $person_id})
-            MATCH (h:House {name: $house_name})
-            MERGE (p)-[:BELONGS_TO]->(h)
-        """, {"person_id": person_id, "house_name": house_name})
-
-def create_social_relations(tx):
-    tx.run("""
-        MATCH (a:Person), (b:Person)
-        WHERE a.ancestry IS NOT NULL AND a.ancestry = b.ancestry AND a.id < b.id
-        MERGE (a)-[:SAME_ANCESTRY]->(b)
-    """)
-    tx.run("""
-        MATCH (a:Person), (b:Person)
-        WHERE a.wand IS NOT NULL AND b.wand IS NOT NULL 
-        AND a.wand CONTAINS 'wood' AND b.wand CONTAINS 'wood'
-        AND a.id < b.id
-        MERGE (a)-[:SAME_WAND_MATERIAL]->(b)
-    """)
-    tx.run("""
-        MATCH (a:Person), (b:Person)
-        WHERE a.species IS NOT NULL AND a.species = b.species AND a.id < b.id
-        MERGE (a)-[:SAME_SPECIES]->(b)
-    """)
-
-def create_extended_social_relations(tx, people_data):
-    # 1. Custom Canon Relationships (Manual)
-    canon_friends = [
-        ("Harry Potter", "Ron Weasley"),
-        ("Harry Potter", "Hermione Granger"),
-        ("Ron Weasley", "Hermione Granger"),
-        ("Albus Dumbledore", "Minerva McGonagall"),
-        ("James Potter I", "Sirius Black"),
-        ("Harry Potter", "Rubeus Hagrid")
-    ]
-    
-    canon_enemies = [
-        ("Harry Potter", "Lord Voldemort"),
-        ("Harry Potter", "Draco Malfoy"),
-        ("Albus Dumbledore", "Lord Voldemort"),
-        ("Harry Potter", "Bellatrix Lestrange"),
-         ("Harry Potter", "Dolores Umbridge")
-    ]
-    
-    print("  Creating Canon Friendships...")
-    for a, b in canon_friends:
-        tx.run("""
-            MATCH (a:Person {name: $a}), (b:Person {name: $b})
-            MERGE (a)-[:FRIEND_OF]->(b)
-        """, {"a": a, "b": b})
-        
-    print("  Creating Canon Enemies...")
-    for a, b in canon_enemies:
-        tx.run("""
-            MATCH (a:Person {name: $a}), (b:Person {name: $b})
-            MERGE (a)-[:ENEMY_OF]->(b)
-        """, {"a": a, "b": b})
-        
-    # 2. Dynamic Romances (From PotterDB)
-    print("  Creating Romances...")
-    for p in people_data:
-        romances = p.get('romances')
-        if romances:
-            for r in romances:
-                partner_name = r.split('(')[0].strip()
-                tx.run("""
-                    MATCH (a:Person {name: $name})
-                    MATCH (b:Person) WHERE b.name CONTAINS $partner
-                    MERGE (a)-[:ROMANTIC_WITH]->(b)
-                """, {"name": p['name'], "partner": partner_name})
-
-# --- FETCH & MERGE ---
 def fetch_hp_api():
     print("Fetching HP-API...")
     try:
-        response = requests.get("https://hp-api.onrender.com/api/characters")
-        return response.json()
+        return requests.get("https://hp-api.onrender.com/api/characters").json()
     except Exception as e:
         print(f"Error fetching HP-API: {e}")
         return []
 
-def fetch_potter_db():
-    print("Fetching PotterDB...")
-    characters = []
-    # Fetch first 10 pages for hybrid mode
-    url = "https://api.potterdb.com/v1/characters?page[size]=100"
-    count = 0
-    max_pages = 10 
-    
-    while url and count < max_pages:
-        print(f"  Fetching page {count+1}...")
-        try:
-            resp = requests.get(url)
-            if resp.status_code != 200:
-                break
-            data = resp.json()
-            for item in data.get('data', []):
-                characters.append(item['attributes'])
-            
-            url = data.get('links', {}).get('next')
-            count += 1
-        except Exception as e:
-            print(f"Error PotterDB: {e}")
-            break
-    return characters
+def clear_db(tx):
+    tx.run("MATCH (n) DETACH DELETE n")
 
-def merge_data():
-    hp_data = fetch_hp_api()
-    potter_data = fetch_potter_db()
-    
-    merged = {}
-    
-    # 1. Base: HP-API
-    for c in hp_data:
+def create_constraints(tx):
+    tx.run("CREATE CONSTRAINT person_name IF NOT EXISTS FOR (p:Person) REQUIRE p.name IS UNIQUE;")
+    tx.run("CREATE CONSTRAINT house_name IF NOT EXISTS FOR (h:House) REQUIRE h.name IS UNIQUE;")
+
+def insert_data(tx, characters):
+    print("  Inserting Characters & Houses...")
+    for c in characters:
         name = c.get('name')
         if not name: continue
         
-        merged[name] = {
+        house = c.get('house') or "Unknown"
+        
+        # Insert House
+        if house:
+            tx.run("MERGE (h:House {name: $name})", {"name": house})
+            
+        # Insert Person
+        tx.run("""
+            MERGE (p:Person {name: $name})
+            SET p.house = $house,
+                p.species = $species,
+                p.gender = $gender,
+                p.alive = $alive,
+                p.image = $image,
+                p.id = $id
+        """, {
             "name": name,
-            "house": c.get("house") or None,
-            "species": c.get("species") or "human",
+            "house": house,
+            "species": c.get("species"),
             "gender": c.get("gender"),
-            "ancestry": c.get("ancestry"),
-            "wand": str(c.get("wand", {})), 
-            "patronus": c.get("patronus"),
-            "hogwartsStudent": c.get("hogwartsStudent", False),
-            "hogwartsStaff": c.get("hogwartsStaff", False),
             "alive": c.get("alive", True),
-            "image": c.get("image"),
-            "romances": []
-        }
+            "image": c.get("image", ""),
+            "id": c.get("id", name) 
+        })
+        
+        # Link Person -> House
+        if house:
+            tx.run("""
+                MATCH (p:Person {name: $name})
+                MATCH (h:House {name: $house})
+                MERGE (p)-[:BELONGS_TO]->(h)
+            """, {"name": name, "house": house})
 
-    # 2. Merge PotterDB
-    for c in potter_data:
-        name = c.get('name')
-        if not name: continue
+def create_rules_relationships(tx):
+    print("  Creating Rule-Based Relationships...")
+    
+    # 1. SAME FAMILY (Same Last Name)
+    # We'll do this in Cypher by splitting name. 
+    # Assumption: Last word is last name.
+    # We avoid matching common names or single names loosely if possible, 
+    # but for HP-API 'First Last' is standard.
+    # excluding 'Unknown' houses or empty names
+    tx.run("""
+        MATCH (a:Person), (b:Person)
+        WHERE a.name CONTAINS ' ' AND b.name CONTAINS ' ' 
+        AND split(a.name, ' ')[-1] = split(b.name, ' ')[-1]
+        AND id(a) < id(b)
+        MERGE (a)-[:SAME_FAMILY]->(b)
+    """)
+    
+    # 2. FRIEND (AMI) = Same House
+    # User specified "Gryffondor", implied all houses.
+    tx.run("""
+        MATCH (a:Person), (b:Person)
+        WHERE a.house <> '' AND a.house <> 'Unknown' 
+        AND a.house = b.house
+        AND id(a) < id(b)
+        MERGE (a)-[:FRIEND_OF]->(b)
+    """)
+
+    # 3. ENEMY (ENNEMI) = Gryffindor vs Slytherin
+    tx.run("""
+        MATCH (a:Person {house: 'Gryffindor'}), (b:Person {house: 'Slytherin'})
+        MERGE (a)-[:ENEMY_OF]->(b)
+        MERGE (b)-[:ENEMY_OF]->(a)
+    """)
+
+def create_romances(tx):
+    print("  Creating Romances...")
+    for p1, p2 in ROMANCES:
+        # Check constraints mappings
+        if p1 in NAME_MAP: p1 = NAME_MAP[p1]
+        if p2 in NAME_MAP: p2 = NAME_MAP[p2]
         
-        p_house = c.get('house')
-        p_species = c.get('species')
-        p_gender = c.get('gender')
-        p_image = c.get('image')
-        p_patronus = c.get('patronus')
-        p_alive = True
-        if c.get('died'): p_alive = False
-        
-        if name in merged:
-            # Update
-            target = merged[name]
-            if not target['house'] and p_house: target['house'] = p_house
-            if not target['species'] and p_species: target['species'] = p_species
-            if not target['gender'] and p_gender: target['gender'] = p_gender
-            if not target['image'] and p_image: target['image'] = p_image
-            if not target['patronus'] and p_patronus: target['patronus'] = p_patronus
-            if c.get('romances'): target['romances'] = c.get('romances')
-        else:
-            # Add new
-            merged[name] = {
-                "name": name,
-                "house": p_house,
-                "species": p_species or "human",
-                "gender": p_gender,
-                "ancestry": None,
-                "wand": str(c.get('wands', [])),
-                "patronus": p_patronus,
-                "hogwartsStudent": False,
-                "hogwartsStaff": False,
-                "alive": p_alive,
-                "image": p_image,
-                "romances": c.get("romances", [])
-            }
-            
-    return list(merged.values())
+        # Try to match names loosely if exact match fails? 
+        # For now, strict match on Name as stored in DB.
+        # Note: If nodes don't exist, this does nothing which is safer than creating empty nodes.
+        tx.run("""
+            MATCH (a:Person), (b:Person)
+            WHERE (a.name = $p1 OR a.name CONTAINS $p1) 
+              AND (b.name = $p2 OR b.name CONTAINS $p2)
+            MERGE (a)-[:ROMANTIC_WITH]->(b)
+            MERGE (b)-[:ROMANTIC_WITH]->(a)
+        """, {"p1": p1, "p2": p2})
 
 if __name__ == "__main__":
-    final_data = merge_data()
+    data = fetch_hp_api()
+    print(f"Fetched {len(data)} characters from HP-API.")
     
     with driver.session() as session:
-        print("Clearing DB...")
         session.execute_write(clear_db)
-        print("Creating Constraints...")
         session.execute_write(create_constraints)
+        session.execute_write(insert_data, data)
+        session.execute_write(create_rules_relationships)
+        session.execute_write(create_romances)
         
-        print(f"Inserting {len(final_data)} characters...")
-        
-        houses_set = set()
-        for i, p in enumerate(final_data):
-            p["id"] = f"ch{i}"
-            session.execute_write(insert_person, p)
-            h = p.get("house")
-            if h:
-                houses_set.add(h)
-                session.execute_write(link_person_house, p["id"], h)
-                
-        print(f"Creating {len(houses_set)} houses...")
-        for h in houses_set:
-             session.execute_write(insert_house, h)
-            
-        print("Creating Base Relations...")
-        session.execute_write(create_social_relations)
-        
-        print("Creating Extended Social Relations (Friends, Enemies, Romances)...")
-        session.execute_write(create_extended_social_relations, final_data)
-
-    print("Success: DB Reverted to Hybrid and Populated!")
+    print("Done! Database updated with HP-API and new rules.")

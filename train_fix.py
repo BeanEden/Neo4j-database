@@ -1,15 +1,12 @@
 import pandas as pd
-import numpy as np
-import pickle
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score, classification_report
+from sklearn.utils import resample
 from neo4j import GraphDatabase
+import pickle
 import os
 
 MODEL_FILE = "house_classifier.pkl"
-ENCODERS_FILE = "encoders.pkl" # Not strictly needed if we only use numerical counts, but keeping for compatibility if mixed
-
 NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
 NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "testpassword")
@@ -22,7 +19,7 @@ def fetch_graph_data():
     MATCH (p:Person)
     WHERE p.house IN ['Gryffindor', 'Slytherin', 'Ravenclaw', 'Hufflepuff']
     
-    // Count Friends by House
+    // Friends
     OPTIONAL MATCH (p)-[:FRIEND_OF]-(f:Person)
     WITH p, 
          sum(CASE WHEN f.house='Gryffindor' THEN 1 ELSE 0 END) as friend_g,
@@ -30,7 +27,7 @@ def fetch_graph_data():
          sum(CASE WHEN f.house='Ravenclaw' THEN 1 ELSE 0 END) as friend_r,
          sum(CASE WHEN f.house='Hufflepuff' THEN 1 ELSE 0 END) as friend_h
 
-    // Count Enemies by House
+    // Enemies
     OPTIONAL MATCH (p)-[:ENEMY_OF]-(e:Person)
     WITH p, friend_g, friend_s, friend_r, friend_h,
          sum(CASE WHEN e.house='Gryffindor' THEN 1 ELSE 0 END) as enemy_g,
@@ -38,7 +35,7 @@ def fetch_graph_data():
          sum(CASE WHEN e.house='Ravenclaw' THEN 1 ELSE 0 END) as enemy_r,
          sum(CASE WHEN e.house='Hufflepuff' THEN 1 ELSE 0 END) as enemy_h
          
-    // Count Family by House
+    // Family
     OPTIONAL MATCH (p)-[:SAME_FAMILY]-(fam:Person)
     WITH p, friend_g, friend_s, friend_r, friend_h, enemy_g, enemy_s, enemy_r, enemy_h,
          sum(CASE WHEN fam.house='Gryffindor' THEN 1 ELSE 0 END) as fam_g,
@@ -46,7 +43,7 @@ def fetch_graph_data():
          sum(CASE WHEN fam.house='Ravenclaw' THEN 1 ELSE 0 END) as fam_r,
          sum(CASE WHEN fam.house='Hufflepuff' THEN 1 ELSE 0 END) as fam_h
 
-    // Count Romance by House
+    // Romance (Weighted highly?)
     OPTIONAL MATCH (p)-[:ROMANTIC_WITH]-(r:Person)
     WITH p, friend_g, friend_s, friend_r, friend_h, enemy_g, enemy_s, enemy_r, enemy_h, fam_g, fam_s, fam_r, fam_h,
          sum(CASE WHEN r.house='Gryffindor' THEN 1 ELSE 0 END) as love_g,
@@ -68,13 +65,9 @@ def fetch_graph_data():
     driver.close()
     return pd.DataFrame(data)
 
-def train_model():
+def train_balanced_model():
     df = fetch_graph_data()
     
-    if df.empty:
-        print("No training data found in Graph!")
-        return
-
     features = [
         'friend_g', 'friend_s', 'friend_r', 'friend_h',
         'enemy_g', 'enemy_s', 'enemy_r', 'enemy_h',
@@ -82,34 +75,30 @@ def train_model():
         'love_g', 'love_s', 'love_r', 'love_h'
     ]
     
-    X = df[features]
-    y = df['house']
-
-    print(f"Training on {len(df)} characters with {len(features)} features...")
+    # Filter to meaningful data
+    df['total'] = df[features].sum(axis=1)
+    df_active = df[df['total'] > 2].copy() # At least 3 connections to be significant
     
-    # Check if we have enough data?
-    # If standard HP data is used, we have 400+ chars.
+    print(f"Training on {len(df_active)} active characters (filtered from {len(df)})")
     
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-
-    clf = RandomForestClassifier(n_estimators=100, random_state=42)
-    clf.fit(X_train, y_train)
-
-    y_pred = clf.predict(X_test)
-    print("Accuracy:", accuracy_score(y_test, y_pred))
-    # print(classification_report(y_test, y_pred))
-
+    X = df_active[features]
+    y = df_active['house']
+    
+    # Simple Random Forest
+    clf = RandomForestClassifier(n_estimators=50, max_depth=5, random_state=42)
+    clf.fit(X, y)
+    
+    print("Feature Importances:")
+    for name, score in zip(features, clf.feature_importances_):
+        print(f"  {name}: {score:.4f}")
+        
+    # Test Sanity
+    test_vec = pd.DataFrame([[10,0,0,0, 0,10,0,0, 5,0,0,0, 1,0,0,0]], columns=features)
+    # Friend=G(10), Enemy=S(10), Fam=G(5), Love=G(1) -> Should be GRYFFINDOR
+    print("Test Vector (Gryffindor Heavy):", clf.predict(test_vec)[0])
+    
     with open(MODEL_FILE, 'wb') as f:
         pickle.dump(clf, f)
-    
-    # We don't use encoders for input features anymore as they are counts.
-    # But app.py might behave weirdly if we don't save something or if it expects encoders.
-    # We'll save an empty dict or just the features list to be safe?
-    # Actually app.py loads encoders. Let's dump an empty dict to avoid FileNotFound.
-    with open(ENCODERS_FILE, 'wb') as f:
-        pickle.dump({}, f)
-    
-    print(f"Model saved to {MODEL_FILE}")
 
 if __name__ == "__main__":
-    train_model()
+    train_balanced_model()

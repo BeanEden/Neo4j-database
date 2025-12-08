@@ -40,35 +40,144 @@ def index():
 
 @app.route('/predict', methods=['POST'])
 def predict():
-    if not model or not encoders:
+    if not model:
         return jsonify({'error': 'Model not loaded'}), 500
 
     data = request.json
+    name = data.get('name', 'Unknown')
     
-    # Prepare dataframe for prediction
-    input_data = {
-        'ancestry': [data.get('ancestry', 'unknown')],
-        'species': [data.get('species', 'human')],
-        'gender': [data.get('gender', 'male')],
-        'hogwartsStudent': [data.get('hogwartsStudent', False)],
-        'hogwartsStaff': [data.get('hogwartsStaff', False)],
-        'wizard': [data.get('wizard', True)],
-        'alive': [data.get('alive', True)]
-    }
+    friends = data.get('friends', [])
+    enemies = data.get('enemies', [])
+    family = data.get('family', [])
+    partners = data.get('partners', []) # List?
     
-    df = pd.DataFrame(input_data)
+    # Process features: Count houses for each group
+    # We need to look up these people in DB to see their houses.
     
-    # Encode categorical
-    for col, le in encoders.items():
-        # Handle unseen labels carefully
-        df[col] = df[col].apply(lambda x: x if x in le.classes_ else 'unknown') 
-        # Note: Ideally 'unknown' should be in training classes, or we handle fallback
-        # For simplicity, we might force mapping or catch error.
-        # Let's map to first class if unknown for now to prevent crash
-        df[col] = df[col].apply(lambda x: le.transform([x])[0] if x in le.classes_ else le.transform([le.classes_[0]])[0])
+    def get_house_counts(names):
+        if not names:
+            return {'Gryffindor': 0, 'Slytherin': 0, 'Ravenclaw': 0, 'Hufflepuff': 0}
+            
+        with driver.session() as session:
+            result = session.run("""
+                MATCH (p:Person)
+                WHERE p.name IN $names
+                RETURN p.house, count(p) as c
+            """, {"names": names})
+            
+            counts = {'Gryffindor': 0, 'Slytherin': 0, 'Ravenclaw': 0, 'Hufflepuff': 0}
+            for r in result:
+                h = r['p.house']
+                c = r['c']
+                if h in counts:
+                    counts[h] += c
+            return counts
 
+    f_counts = get_house_counts(friends)
+    e_counts = get_house_counts(enemies)
+    fam_counts = get_house_counts(family)
+    p_counts = get_house_counts(partners)
+    
+    # Feature Vector (order must match training)
+    features = [
+        f_counts['Gryffindor'], f_counts['Slytherin'], f_counts['Ravenclaw'], f_counts['Hufflepuff'],
+        e_counts['Gryffindor'], e_counts['Slytherin'], e_counts['Ravenclaw'], e_counts['Hufflepuff'],
+        fam_counts['Gryffindor'], fam_counts['Slytherin'], fam_counts['Ravenclaw'], fam_counts['Hufflepuff'],
+        p_counts['Gryffindor'], p_counts['Slytherin'], p_counts['Ravenclaw'], p_counts['Hufflepuff']
+    ]
+    
+    # Predict
+    df = pd.DataFrame([features], columns=[
+        'friend_g', 'friend_s', 'friend_r', 'friend_h',
+        'enemy_g', 'enemy_s', 'enemy_r', 'enemy_h',
+        'fam_g', 'fam_s', 'fam_r', 'fam_h',
+        'love_g', 'love_s', 'love_r', 'love_h'
+    ])
+    
     prediction = model.predict(df)[0]
-    return jsonify({'house': prediction})
+    
+    # "Enregistrer mon nom" - Save User to Graph? only if name is provided
+    if name and name != "Unknown":
+        with driver.session() as session:
+            # Create User Node
+             session.run("""
+                MERGE (u:Person {name: $name})
+                SET u.house = $house, u.isUser = true
+            """, {"name": name, "house": prediction})
+            
+            # Create Relationships (Optional but cool)
+             if friends:
+                 session.run("""
+                    MATCH (u:Person {name: $name}), (f:Person)
+                    WHERE f.name IN $friends
+                    MERGE (u)-[:FRIEND_OF]->(f)
+                 """, {"name": name, "friends": friends})
+             if enemies:
+                 session.run("""
+                    MATCH (u:Person {name: $name}), (e:Person)
+                    WHERE e.name IN $enemies
+                    MERGE (u)-[:ENEMY_OF]->(e)
+                 """, {"name": name, "enemies": enemies})
+             if family:
+                 session.run("""
+                    MATCH (u:Person {name: $name}), (fam:Person)
+                    WHERE fam.name IN $family
+                    MERGE (u)-[:SAME_FAMILY]->(fam)
+                 """, {"name": name, "family": family})
+             if partners:
+                 session.run("""
+                    MATCH (u:Person {name: $name}), (p:Person)
+                    WHERE p.name IN $partners
+                    MERGE (u)-[:ROMANTIC_WITH]->(p)
+                 """, {"name": name, "partners": partners})
+
+# ... Helper function or imports if needed
+
+# --- SURVIVAL MODEL LOADING ---
+SURVIVAL_MODEL_FILE = "survival_model.pkl"
+SURVIVAL_ENCODER_FILE = "survival_encoder.pkl"
+
+try:
+    with open(SURVIVAL_MODEL_FILE, 'rb') as f:
+        survival_model = pickle.load(f)
+    with open(SURVIVAL_ENCODER_FILE, 'rb') as f:
+        survival_le = pickle.load(f)
+    print("✅ Survival Model Loaded")
+except FileNotFoundError:
+    print("⚠️ Survival Model missing")
+    survival_model = None
+    survival_le = None
+
+@app.route('/predict_survival', methods=['POST'])
+def predict_survival():
+    if not survival_model:
+        return jsonify({'error': 'Survival Model not loaded'}), 500
+        
+    data = request.json
+    friends = data.get('friends', [])
+    enemies = data.get('enemies', [])
+    family = data.get('family', [])
+    house = data.get('house', 'Gryffindor')
+    
+    # Features: friends_count, enemy_count, fam_count, house_code
+    f_count = len(friends)
+    e_count = len(enemies)
+    fam_count = len(family)
+    
+    try:
+        # Check if house is valid
+        if house not in survival_le.classes_:
+             house = 'Gryffindor' # Fallback
+        house_code = survival_le.transform([house])[0]
+    except:
+        house_code = 0 
+        
+    df = pd.DataFrame([[f_count, e_count, fam_count, house_code]], 
+                      columns=['friends_count', 'enemy_count', 'fam_count', 'house_code'])
+                      
+    pred = survival_model.predict(df)[0]
+    
+    return jsonify({'alive': bool(pred)})
 
 @app.route('/characters')
 def characters_page():
@@ -94,9 +203,52 @@ def get_all_characters():
             })
         return jsonify(chars)
 
+@app.route('/winder', methods=['POST'])
+def winder_match():
+    data = request.json
+    friends = data.get('friends', [])
+    
+    if not friends:
+        return jsonify({'error': 'No friends provided to base matches on!'}), 400
+        
+    with driver.session() as session:
+        # Link Prediction: Common Neighbors
+        # "Find people who are friends with my friends"
+        query = """
+        MATCH (f:Person)
+        WHERE f.name IN $friends
+        MATCH (f)-[:FRIEND_OF]-(candidate:Person)
+        WHERE NOT candidate.name IN $friends
+        
+        WITH candidate, count(f) as common_friends, collect(f.name) as shared_with
+        RETURN candidate.name as name, 
+               candidate.house as house, 
+               candidate.image as image, 
+               common_friends,
+               shared_with
+        ORDER BY common_friends DESC
+        LIMIT 3
+        """
+        
+        result = session.run(query, {"friends": friends})
+        matches = []
+        for r in result:
+             matches.append({
+                 "name": r["name"],
+                 "house": r["house"],
+                 "image": r["image"],
+                 "score": r["common_friends"],
+                 "reason": r["shared_with"]
+             })
+             
+             
+    return jsonify(matches)
+
 @app.route('/graph')
 def graph_page():
     return render_template('graph.html')
+
+
 
 @app.route('/api/graph/<name>')
 def get_graph(name):
@@ -105,7 +257,7 @@ def get_graph(name):
         result = session.run("""
             MATCH (p:Person {name: $name})-[r]-(m)
             RETURN p, r, m
-            LIMIT 50
+            LIMIT 500
         """, {"name": name})
         
         nodes = []
@@ -207,6 +359,77 @@ def get_graph(name):
                 added_nodes.add(m_data["id"])
                 
             edges.append({"data": {"source": p_data["id"], "target": m_data["id"], "label": r.type}})
+
+        return jsonify({"elements": {"nodes": nodes, "edges": edges}})
+
+@app.route('/api/graph/houses')
+def get_graph_by_houses():
+    houses_param = request.args.get('houses', '')
+    if not houses_param:
+        return jsonify({"elements": {"nodes": [], "edges": []}})
+        
+    houses = houses_param.split(',')
+    
+    with driver.session() as session:
+        # 1. Fetch Persons and Internal Relationships
+        result_persons = session.run("""
+            MATCH (p:Person)
+            WHERE p.house IN $houses
+            OPTIONAL MATCH (p)-[r]-(m:Person)
+            WHERE m.house IN $houses
+            RETURN p, r, m
+            LIMIT 5000
+        """, {"houses": houses})
+        
+        nodes = []
+        edges = []
+        added_nodes = set()
+        
+        for record in result_persons:
+            p = record['p']
+            r = record['r']
+            m = record['m']
+            
+            p_data = {"id": p["id"], "label": p.get("name", "Unknown"), "group": "person", "house": p.get("house")}
+            
+            if p_data["id"] not in added_nodes:
+                nodes.append({"data": p_data})
+                added_nodes.add(p_data["id"])
+                
+            if r and m:
+                m_label = m.get("name", m.get("id"))
+                m_data = {"id": m.get("id", m_label), "label": m_label, "group": "person", "house": m.get("house")}
+                
+                if m_data["id"] not in added_nodes:
+                    nodes.append({"data": m_data})
+                    added_nodes.add(m_data["id"])
+                
+                edges.append({"data": {"source": p_data["id"], "target": m_data["id"], "label": r.type}})
+
+        # 2. Fetch House Nodes and BELONGS_TO Relationships
+        # This ensures the "House Connection" filter works and we see the House Node hub.
+        result_houses = session.run("""
+            MATCH (h:House)
+            WHERE h.name IN $houses
+            OPTIONAL MATCH (p:Person)-[r:BELONGS_TO]->(h)
+            RETURN h, r, p
+        """, {"houses": houses})
+        
+        for record in result_houses:
+            h = record['h']
+            r = record['r']
+            p = record['p']
+            
+            h_data = {"id": h.get("id", h["name"]), "label": h["name"], "group": "house"}
+            if h_data["id"] not in added_nodes:
+                nodes.append({"data": h_data})
+                added_nodes.add(h_data["id"])
+                
+            if r and p:
+                 p_id = p["id"]
+                 # p should already be in nodes from step 1, but we check to be safe or if unconnected otherwise
+                 if p_id in added_nodes:
+                     edges.append({"data": {"source": p_id, "target": h_data["id"], "label": "BELONGS_TO"}})
 
         return jsonify({"elements": {"nodes": nodes, "edges": edges}})
 

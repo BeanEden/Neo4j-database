@@ -3,58 +3,48 @@
 {% block content %}
 <div class="row justify-content-center">
     <div class="col-md-8">
-        <div class="card">
-            <div class="card-header bg-dark text-white">
-                <h4>🔮 The Sorting Hat</h4>
+        <div class="card shadow-lg border-0">
+            <div class="card-header bg-danger text-white text-center py-4"
+                style="background: linear-gradient(45deg, #ff6b6b, #ff8e53);">
+                <h2 class="mb-0">💘 Winder</h2>
+                <p class="mb-0 opacity-75">Connect with your magical soulmate</p>
             </div>
-            <div class="card-body">
-                <form id="predictForm">
-                    <div class="mb-3">
-                        <label class="form-label">Ancestry</label>
-                        <select class="form-select" id="ancestry">
-                            <option value="half-blood">Half-Blood</option>
-                            <option value="muggleborn">Muggle-born</option>
-                            <option value="pure-blood">Pure-blood</option>
-                            <option value="squib">Squib</option>
-                        </select>
+            <div class="card-body p-5">
+
+                <form id="winderForm">
+                    <!-- User Name -->
+                    <div class="mb-4">
+                        <label class="form-label text-muted text-uppercase fw-bold small">Your Identity</label>
+                        <input type="text" class="form-control form-control-lg" id="userName" placeholder="Who are you?"
+                            required>
                     </div>
-                    <div class="mb-3">
-                        <label class="form-label">Species</label>
-                        <select class="form-select" id="species">
-                            <option value="human">Human</option>
-                            <option value="ghost">Ghost</option>
-                            <option value="half-giant">Half-Giant</option>
-                            <option value="werewolf">Werewolf</option>
-                            <option value="centaur">Centaur</option>
-                            <option value="house-elf">House-elf</option>
-                            <option value="goblin">Goblin</option>
-                        </select>
+
+                    <!-- Friends Input -->
+                    <div class="mb-4">
+                        <label class="form-label text-muted text-uppercase fw-bold small">Your Circle (Tell us who you
+                            know)</label>
+                        <div class="input-group input-group-lg">
+                            <input type="text" class="form-control person-input" list="charList" id="friendInput"
+                                placeholder="Type a friend's name...">
+                            <button class="btn btn-outline-danger" type="button" onclick="addFriend()">Add</button>
+                        </div>
+                        <small class="text-muted">Algorithm uses your friends to find compatible matches!</small>
+                        <div class="d-flex flex-wrap gap-2 mt-3" id="friendTags"></div>
                     </div>
-                    <div class="mb-3">
-                        <label class="form-label">Gender</label>
-                        <select class="form-select" id="gender">
-                            <option value="male">Male</option>
-                            <option value="female">Female</option>
-                        </select>
-                    </div>
-                    <div class="mb-3 form-check">
-                        <input type="checkbox" class="form-check-input" id="hogwartsStudent" checked>
-                        <label class="form-check-label">Hogwarts Student</label>
-                    </div>
-                    <div class="mb-3 form-check">
-                        <input type="checkbox" class="form-check-input" id="hogwartsStaff">
-                        <label class="form-check-label">Hogwarts Staff</label>
-                    </div>
-                    <div class="mb-3 form-check">
-                        <input type="checkbox" class="form-check-input" id="alive" checked>
-                        <label class="form-check-label">Alive</label>
-                    </div>
-                    <button type="submit" class="btn btn-primary w-100">Sort Me!</button>
+
+                    <button type="submit" class="btn btn-danger btn-lg w-100 rounded-pill shadow-sm"
+                        style="background: linear-gradient(45deg, #ff6b6b, #ff8e53); border:none;">
+                        🔥 FIND MY MATCH 🔥
+                    </button>
                 </form>
 
-                <div id="result" class="mt-4 text-center d-none">
-                    <h3>You belong in...</h3>
-                    <h1 class="display-4 fw-bold" id="houseResult"></h1>
+                <!-- Datalist for autocomplete -->
+                <datalist id="charList"></datalist>
+
+                <!-- Results Section -->
+                <div id="resultsArea" class="mt-5 d-none">
+                    <h4 class="text-center mb-4 text-muted">✨ Top Matches For You ✨</h4>
+                    <div class="row" id="matchesRow"></div>
                 </div>
             </div>
         </div>
@@ -62,39 +52,118 @@
 </div>
 
 <script>
-    document.getElementById('predictForm').addEventListener('submit', async (e) => {
+    let allChars = [];
+    const friends = new Set();
+
+    // Load characters
+    document.addEventListener('DOMContentLoaded', async () => {
+        const res = await fetch('/api/characters');
+        const data = await res.json();
+        allChars = data.map(c => c.name);
+        allChars.sort();
+        const dl = document.getElementById('charList');
+        allChars.forEach(name => {
+            const op = document.createElement('option');
+            op.value = name;
+            dl.appendChild(op);
+        });
+    });
+
+    function addFriend() {
+        const input = document.getElementById('friendInput');
+        const val = input.value.trim();
+        if (!val) return;
+
+        if (!allChars.includes(val)) {
+            alert("This wizard is not in our database!");
+            return;
+        }
+
+        if (friends.has(val)) return;
+
+        friends.add(val);
+        renderTags();
+        input.value = '';
+    }
+
+    function removeFriend(name) {
+        friends.delete(name);
+        renderTags();
+    }
+
+    function renderTags() {
+        const container = document.getElementById('friendTags');
+        container.innerHTML = '';
+        friends.forEach(name => {
+            const tag = document.createElement('span');
+            tag.className = 'badge rounded-pill bg-light text-dark border px-3 py-2 d-flex align-items-center gap-2';
+            tag.innerHTML = `${name} <span style="cursor:pointer; color:red;" onclick="removeFriend('${name.replace(/'/g, "\\'")}')">&times;</span>`;
+            container.appendChild(tag);
+        });
+    }
+
+    document.getElementById('winderForm').addEventListener('submit', async (e) => {
         e.preventDefault();
 
+        if (friends.size === 0) {
+            alert("Please add at least one friend so we can scan your network!");
+            return;
+        }
+
         const data = {
-            ancestry: document.getElementById('ancestry').value,
-            species: document.getElementById('species').value,
-            gender: document.getElementById('gender').value,
-            hogwartsStudent: document.getElementById('hogwartsStudent').checked,
-            hogwartsStaff: document.getElementById('hogwartsStaff').checked,
-            alive: document.getElementById('alive').checked
+            name: document.getElementById('userName').value,
+            friends: Array.from(friends)
         };
 
-        const response = await fetch('/predict', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data)
-        });
+        // Show loading state?
+        const btn = e.submitter;
+        const originalText = btn.innerHTML;
+        btn.innerHTML = "🔮 Scrying...";
+        btn.disabled = true;
 
-        const result = await response.json();
-        const resultDiv = document.getElementById('result');
-        const houseText = document.getElementById('houseResult');
+        try {
+            const response = await fetch('/winder', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
 
-        resultDiv.classList.remove('d-none');
-        houseText.innerText = result.house;
+            const matches = await response.json();
+            const resultsArea = document.getElementById('resultsArea');
+            const matchesRow = document.getElementById('matchesRow');
 
-        // Simple color coding
-        const colors = {
-            'Gryffindor': '#740001',
-            'Slytherin': '#1a472a',
-            'Ravenclaw': '#0e1a40',
-            'Hufflepuff': '#ecb939'
-        };
-        houseText.style.color = colors[result.house] || '#000';
+            matchesRow.innerHTML = '';
+            resultsArea.classList.remove('d-none');
+
+            if (matches.length === 0) {
+                matchesRow.innerHTML = '<div class="col-12 text-center text-muted">No specific matches found via common friends. Try adding more popular friends!</div>';
+            } else {
+                matches.forEach(m => {
+                    matchesRow.innerHTML += `
+                    <div class="col-md-4 mb-3">
+                        <div class="card h-100 shadow-sm border-0">
+                            ${m.image ? `<img src="${m.image}" class="card-img-top" style="height:200px; object-fit:cover;">` : `<div class="bg-secondary text-white d-flex align-items-center justify-content-center" style="height:200px;">No Image</div>`}
+                            <div class="card-body text-center">
+                                <h5 class="card-title fw-bold">${m.name}</h5>
+                                <p class="small text-muted mb-2">${m.house || 'Unknown House'}</p>
+                                <div class="badge bg-danger mb-2">Likelihood: ${m.score * 10}%</div>
+                                <p class="small text-muted">
+                                    <strong>Common Friends:</strong><br>
+                                    ${m.reason.slice(0, 3).join(', ')}${m.reason.length > 3 ? '...' : ''}
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    `;
+                });
+            }
+        } catch (err) {
+            console.error(err);
+            alert("Spell backfired!");
+        } finally {
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+        }
     });
 </script>
 {% endblock %}
